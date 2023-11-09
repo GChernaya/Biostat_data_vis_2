@@ -1,0 +1,380 @@
+---
+title: "data_vis_2"
+author: "Galina Chernaya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(plotly)
+library(rstatix)
+library(corrplot)
+library(corrr)
+library(ggpval)
+library(factoextra)
+library(pheatmap)
+library(FactoMineR)
+library(ggbiplot)
+library(tidymodels)
+library(embed)
+
+```
+
+
+```{r include=FALSE}
+led <- readRDS("life_expectancy_data.RDS")
+summary(led)
+
+```
+
+
+
+## 1. Plotly: Tuberculosis incidence and treatment
+
+
+
+```{r}
+plot_ly(
+  data = led,
+  x = ~ `Tuberculosis Incidence`,
+  y = ~ `Tuberculosis treatment`,
+  color = ~ continent,
+  text = ~Country, 
+  hoverinfo = "text",
+  type = "scatter") %>%
+  layout(
+    title = 'Tuberculosis incidence and treatment ratio',
+    yaxis = list(title = 'Tuberculosis treatment'),
+    xaxis = list(title = 'Tuberculosis incidence')
+  ) 
+```
+
+
+
+
+## 2. Comparison of life expectancy in Africa and America
+
+
+
+```{r}
+stat.test1 <- led %>% filter(continent %in% c("Africa", "Americas")) %>%
+  t_test(`Life expectancy` ~ continent)
+
+stat.test1
+ 
+ ggboxplot(
+   led[continent %in% c("Africa", "Americas"),], 
+   x = "continent", y = "Life expectancy", 
+   ylab = "Life expectancy", xlab = "Continent", 
+   add = "jitter",
+   color = "continent"
+   ) + 
+   ggtitle("Comparison of life expectancy in Africa and America, t-test") +
+   labs(subtitle = paste0("statistic = ", stat.test1$statistic, ", p-value = ", stat.test1$p_value)) + 
+   theme(plot.title = element_text(color = "blue4"), legend.position = "none")
+ 
+```
+
+
+## 3. Correlation analysis of numeric parameters of life expectancy
+
+
+
+``` {r fig.width=17, fig.height=17}
+led_c <- led %>% select(where(is.numeric)) %>% select(!Year)
+corled <- cor(led_c) 
+
+corrplot(corled, method = 'color', type = "lower", diag = FALSE, 
+         addCoef.col = "grey30", 
+         cl.pos = "b", 
+         tl.col = "grey10",
+         col = COL2('RdBu', 10),
+         tl.cex = 1, cl.cex = 1,     
+         number.cex = 0.8,
+         title = "\n\n\n\nCorrelation analysis of numeric parameters of life expectancy data",
+         cex.main = 2)
+
+corled %>% rplot() +
+  theme_dark() +  
+  theme(
+    axis.text.x = element_text(size = 16, angle = 90),  
+    axis.text.y = element_text(size = 16),
+    legend.key.size = unit(16, "pt"),
+    plot.title = element_text(size = 25)) +
+    ggtitle("Correlation analysis of numeric parameters of life expectancy data")
+
+```
+
+
+### Correlation matrix with p-values:
+
+
+
+```{r fig.width=30, fig.height=30, eval = FALSE}
+
+ggpairs(led_c ,
+        title = 'Correlation analysis of numeric parameters of life expectancy',
+        progress = F) +
+    theme_minimal() +
+    scale_fill_manual(values = c('blue4')) +
+    scale_colour_manual(values = c('blue4')) -> g
+g
+
+
+```
+
+
+
+## 4. Clasterization of life expectancy data
+
+
+
+```{r}
+
+led_c_scaled <- scale(led_c)
+
+led_c_dist <- dist(led_c_scaled, 
+                        method = "euclidean"
+                        )
+led_c_hc <- hclust(d = led_c_dist, 
+                        method = "ward.D2")
+
+fviz_dend(led_c_hc, 
+          cex = 0.1) 
+
+```
+
+
+## 5. Heatmap + tree map of life expectancy data
+
+
+
+``` {r}
+pheatmap(led_c_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = led_c_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 7,
+         cutree_cols = length(colnames(led_c_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+
+```
+
+
+### Интерпретация результата: 
+
+
+
+По результатам кластеризации с разделением наблюдений по отклонению от среднего можно отметить группу низких значений для объема вакцинации против кори, ДКС и гепатита В. В данной группе стран также снижены относительно среднего показатели валового внутреннего продукта и валового национального дохода, уровня санитарных служб и ожидаемой продолжительности жизни, при этом повышен относительно других групп уровень детской смертности и заболеваемость туберкулезом. В кластере же с самыми высокими экономическими показателями мы видим на уровне ниже среднего показатели смертности, долю сельского населения, при этом все остальные показатели в области среднего значения (в этой группе, по-видимому, США и Китай). Также выделена в отдельный кластер группа стран с высоким уровнем суицидов, при этом другие показатели в этой группе не отличаются значительно от средних значений (только незначительно повышена ожидаемая продолжительность жизни).
+
+
+
+
+## 6. PCA analysis
+
+
+
+Проведем анализ главных компонент датасета с нумерическими переменными без переменной Year.
+
+```{r}
+led_c.pca <- prcomp(led_c, scale = T) 
+```
+
+
+
+### Визуализация Cumulative Proportion:
+
+
+
+```{r}
+fviz_eig(led_c.pca, addlabels = T, ylim = c(0, 45))
+
+```
+
+74% вариативности данных обьясняются первыми пятью главными компонентами, при этом значительно - только первой.
+
+
+
+Посмотрим переменные, по которым строилась первая, вторая и третья главные компоненты:
+
+
+
+```{r}
+fviz_contrib(led_c.pca, choice = "var", axes = 1, top = 19) # 1
+fviz_contrib(led_c.pca, choice = "var", axes = 2, top = 19) # 2
+fviz_contrib(led_c.pca, choice = "var", axes = 3, top = 19) # 3
+```
+
+
+
+Видим, что в первую главную компоненту (объясняет 39.9% вариабельности) основной вклад вносят ожидаемая продолжительность жизни, детская смертность, уровень работы санитарных служб, качетво воды и питания. Во вторую главную компоненту (объясняет 11.6% вариабельности) - уровень иммунизации от опасных инфекций, в третью (объясняет 10.2% вариабельности) - экономические показатели: валовый внутренний продукт и валовый национальный доход.
+
+
+### Визуализация результатов анализа по первым двум главным компонентам:
+
+
+
+```{r}
+fviz_pca_var(led_c.pca, col.var = "contrib", labelsize = 2)
+```
+
+
+
+
+Видим, что показатели иммунизации очень близки друг к другу, имеет смысл объединить их в одну переменную. Вторая группа показателей - показатели смертности и заболеваемости туберкулезом. Третья группа - показатель качества воды и питания, продолжительности жизни и уровень работы санитарных служб.
+
+
+
+Можно выделить 6 переменных, которые вносят наибольший вклад в первые 2 главные компоненты: 
+
+
+```{r}
+fviz_pca_var(led_c.pca, 
+             select.var = list(contrib = 6), # Задаём число здесь 
+             col.var = "contrib")
+
+```
+
+
+## 7. Biplot: visualisation by regions
+
+
+
+
+```{r fig.width=10, fig.height=10}
+
+b <- ggbiplot(led_c.pca, 
+         scale = 0, 
+         groups = as.factor(led$continent), 
+         ellipse = TRUE,
+         alpha = 0.7,
+         varname.size = 3, 
+         labels = (led$Country),
+         labels.size = 2
+         
+) +
+  theme_classic() 
+  ggplotly(b, tooltip = c("xvar", "yvar", "labels", "groups")) 
+
+```
+
+Проанализировав график, можем отметить, что значительные различия показателей отмечаются между африканским и европейским регионами, осталные группы стран на графике смешаны, с центрами элипсов близко к области нуля относительно первых двух главных компонент
+
+
+
+## 8. UMAP analysis
+
+
+
+```{r}
+umap_prep <- recipe(~., data = led_c) %>% 
+  step_normalize(all_predictors()) %>% 
+  step_umap(all_predictors()) %>%  
+  prep() %>%  
+  juice() 
+
+
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) +  
+  geom_point(aes(color = led$continent), 
+             alpha = 0.7, size = 2) +
+  labs(color = NULL)
+```
+Результат анализа UMAP показывает более четкое разделение наблюдений на группы (UMAP ориентирован на сохранение локального расстояние между точками в отличае от PCA, ориентированного на сохранение глобальной структуры данных). Опираясь на полученные результаты, можно формулировать гипотезы о различиях между данными группами стран, а также проводить анализ внутри групп. 
+
+
+
+## 9. Влияние снижения размерности: 
+
+
+
+```{r}
+# 1
+
+set.seed(42)
+
+for (i in 1:3) {
+columns_to_remove <- sample(colnames(led_c), 5)
+
+print(paste("Удалены переменные:", paste(columns_to_remove, collapse = ", ")))
+
+led_c_rem <- led_c %>% select(!columns_to_remove)
+
+led_c_rem.pca <- prcomp(led_c_rem, scale = T) 
+
+p1 <- fviz_eig(led_c_rem.pca, addlabels = T, ylim = c(0, 45))
+print(p1)
+p2 <- fviz_pca_var(led_c_rem.pca, col.var = "contrib", labelsize = 2)
+print(p2)}
+
+
+```
+
+Значения cumulative proportion не изменились значительно при удалении 5 случайных переменных (но, тем не менее, увеличились). Это связано с тем, что вклад в главные компоненты вносят несколько достаточно вариативных переменных. В том случае, если буду удалены большинство из переменных, определяющих первые 3 главные компоненты, то мы увидим более значительные изменения. В этом плане можно рассмотреть 3 случай, когда были удалены переменные, в основном определявшие третью главную компоненту, при этом процент cumulative proportion снизился незначительно(с 10.2 до 9) за счет большого числа переменных, вносящих незначительный вклад в третью компоненту.
+
+
+
+## 10. Снижение размерности за счет группировки данных по принадлежности к регионам: Африка, Океания
+
+
+
+```{r}
+led_c_reg <- led_c %>%
+  mutate(Is_Africa = ifelse(led$continent == "Africa", 1, 0),
+         Is_Oceania = ifelse(led$continent == "Oceania", 1, 0)) %>% group_by(Is_Africa) %>% group_by(Is_Oceania)
+
+led_c_reg.pca <- prcomp(led_c_reg, scale = T) 
+
+fviz_eig(led_c_reg.pca, addlabels = T, ylim = c(0, 45))
+
+fviz_pca_var(led_c_reg.pca, col.var = "contrib", labelsize = 2)
+```
+
+
+
+### Группировка по принадлежности к африканскому региону
+
+
+
+
+```{r}
+d <- ggbiplot(led_c_reg.pca, 
+         scale = 0, 
+         groups = led_c_reg$Is_Africa,
+         ellipse = TRUE,
+         alpha = 0.7,
+         varname.size = 3
+        ) +
+  theme_classic() 
+  ggplotly(d, tooltip = c("xvar", "yvar", "groups")) 
+```
+
+
+
+### Группировка по принадлежности к региону Океании  
+
+
+
+```{r}
+d <- ggbiplot(led_c_reg.pca, 
+         scale = 0, 
+         groups = led_c_reg$Is_Oceania,
+         ellipse = TRUE,
+         alpha = 0.7,
+         varname.size = 3
+        ) +
+  theme_classic() 
+  ggplotly(d, tooltip = c("xvar", "yvar", "groups")) 
+
+```
+
+
+
+При сравнении графиков можно отметить, что разброс значений показателей в Океании приблизительно соответствует разбросу переменных для других стран относительно первых двух главных компонент, а в африканском регионе значения показателей относительно главных компонент отличаются от остальных стран.
+Насколько я понимаю, добавление дамми-колонки не корректно, так как разброс данных в незначительностей степени определяется принадлежностью к региону, что не позволяет формулировать гипотезы в зависимости от принадлежности к региону.
